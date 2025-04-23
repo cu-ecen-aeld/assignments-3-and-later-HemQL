@@ -19,6 +19,6 @@ fi
 NUMFILES=$( grep -c "$SEARCHSTR" ${FILESDIR}/*.txt | grep -c ".txt")
 NUMLINES=$( cat ${FILESDIR}/*.txt | grep -c "$SEARCHSTR")
 
-echo "The number of files are ${NUMFILES} and the number of matching lines are ${NUMLINES}"
+echo "The number of files are ${NUMFILES} and the number of matching lines are ${NUMLINES}\n"
 exit 0
 
