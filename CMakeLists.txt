@@ -1,8 +1,5 @@
 cmake_minimum_required(VERSION 3.0.0)
-
-# Set this to whatever you like
 project(aesd-assignments)
-
 # A list of all automated test source files
 # At minimum it should include the files in the test/assignmentX directory
 # Students can also add paths to their own test files using a ../ prefix to
@@ -10,13 +7,7 @@ project(aesd-assignments)
 set(AUTOTEST_SOURCES
     test/assignment1/Test_hello.c
     test/assignment1/Test_assignment_validate.c
-<<<<<<< HEAD
-#   Include any private tests in the parent repo you expect students to write
-#   or you are using with additional automated testing on the submission
-#    ../private-test/assignment1/Test_validate_github_name.c
-=======
     test/assignment3/Test_systemcalls.c
->>>>>>> assignments-base/assignment3-part-1
 )
 # A list of all files containing test code that is used for assignment validation
 set(TESTED_SOURCE
