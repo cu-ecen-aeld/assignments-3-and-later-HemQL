@@ -1,9 +1,23 @@
-AESD_PID=$(ps | grep aesdsocket | awk '{print $1}')
+#!/bin/sh
 
-if [ -z "${AESD_PID}"]; then
-    aesdsocket -d
-    
-else
-    kill -s TERM ${AESD_PID}
-    
-fi
+case "$1" in
+	start)
+		echo "Starting aesdsocket server"
+		start-stop-daemon -S -n aesdsocket -a /usr/bin/aesdsocket
+		;;
+	stop)
+		echo "Starting aesdsocket server"
+		start-stop-daemon -K -n aesdsocket
+		;;
+	restart)
+		start-stop-daemon -K -n aesdsocket
+		start;;
+	reload)
+		# Restart, since there is no true "reload" feature.
+		restart;;
+	*)
+		echo "Usage: $0 {start|stop|restart|reload}"
+	exit 1
+esac
+
+exit 0
