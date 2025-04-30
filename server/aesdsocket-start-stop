@@ -1,0 +1,9 @@
+AESD_PID=$(ps | grep aesdsocket | awk '{print $1}')
+
+if [ -z "${AESD_PID}"]; then
+    .aesdsocket -d
+    
+else
+    kill -s TERM ${AESD_PID}
+    
+fi
