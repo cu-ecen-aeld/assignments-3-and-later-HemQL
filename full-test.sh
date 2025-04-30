@@ -3,7 +3,10 @@
 # automated testing using assignment-autotest.  It automates the
 # steps described in https://github.com/cu-ecen-5013/assignment-autotest/blob/master/README.md#running-tests
 set -e
-cd `dirname $0`
+
+SOURCE_DIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+
+cd ${SOURCE_DIR}
 if [ -f ./assignment-autotest/docker/options ]; then
     # When run using a docker container on a parent repo, support additional options
     # specifying UID/GID of user
@@ -20,7 +23,7 @@ if [ -f conf/assignment.txt ]; then
     if [ -f ./assignment-autotest/test/${assignment}/assignment-test.sh ]; then
     # Optional: If you have other tests to run against the assignment
     # add these to a script under test/${assignment}
-        ./assignment-autotest/test/${assignment}/assignment-test.sh
+        ./assignment-autotest/test/${assignment}/assignment-test.sh ${SOURCE_DIR}
         echo "Test of assignment ${assignment} complete with success"
     else
         echo "No assignment-test script found for ${assignment}, skipping this test"

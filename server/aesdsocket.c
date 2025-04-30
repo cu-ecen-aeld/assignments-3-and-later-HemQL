@@ -61,14 +61,18 @@ int main(int argc, char **args){
     rdfile = malloc(rdsize);
     
     syslog(LOG_USER, "Initializing aesdsocket server...");
-    
+    int i;
     if(argc > 1){
-        fprintf(stdout, "argument %s", args[1]);
+        for(i=0; i<argc; i++){
+            fprintf(stdout, "%s ", (char *)args[i]);
+        }
         int pid = fork();
-        
+ 
         if (pid !=0){
+            syslog(LOG_USER, "aesdsocket daemon started, PID: %u", pid);
             return 0;
         }
+        
     }
     
     openlog(NULL,0,LOG_USER);
@@ -99,6 +103,11 @@ int main(int argc, char **args){
     }
      
     sfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0){
+        errsv = errno;
+        syslog(LOG_ERR,"setsockopt error: %s\n", strerror(errsv));
+        cleanup(-1);
+    }   
     if (bind(sfd, servinfo->ai_addr, servinfo->ai_addrlen) == -1) {
         errsv = errno;
         syslog(LOG_ERR,"bind error: %s\n", strerror(errsv));
