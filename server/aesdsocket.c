@@ -17,7 +17,7 @@
 
 int sfd, client_fd;
 int fd;
-char* buf;
+
 char* rdfile;
 int bufsize = 256;
 int rdsize = 256;
@@ -31,7 +31,7 @@ pthread_mutex_t fd_mut = PTHREAD_MUTEX_INITIALIZER;
 struct thread_entry {
     pthread_t thread;
     int id;
-    //int cfd;
+    int cfd;
     int complete;
     SLIST_ENTRY(thread_entry) entries; // Singly-linked list pointer
 };
@@ -48,11 +48,9 @@ void cleanup(int exit_code) {
     } else {
         syslog(LOG_ERR,"Error: Unable to delete the file.");
     }
-    free(buf);
+    //free(buf);
     free(rdfile);
-//    if (cfd != -1) {
-//        shutdown(cfd, SHUT_RDWR);
-//    }
+    
     if (sfd != -1) {
         shutdown(sfd, SHUT_RDWR);
         close(sfd);
@@ -61,6 +59,9 @@ void cleanup(int exit_code) {
     struct thread_entry *n1;
     while (!SLIST_EMPTY(&head)) {           /* List deletion */
         n1 = SLIST_FIRST(&head);
+        if (n1->cfd != -1) {
+            shutdown(n1->cfd, SHUT_RDWR);
+        }
         SLIST_REMOVE_HEAD(&head, entries);
         free(n1);
 
@@ -80,7 +81,7 @@ void handle_signal(int sig, siginfo_t *info, void *context) {
 }
 
 static void *writeTimestamp(){
-    int outstr_size;
+
     char outstr[33];
     time_t t;
     
@@ -90,23 +91,24 @@ static void *writeTimestamp(){
         t = time(NULL);
         tmp = localtime(&t);
         if((long)t-(long)lastStamp>10){
-            if (strftime(outstr, sizeof(outstr), "%a, %d %b %Y %T %z\n", tmp) == 0) {
+        int len = strftime(outstr, sizeof(outstr), "%a, %d %b %Y %T %z\n", tmp);
+            if (len == 0) {
                 syslog(LOG_DEBUG, "strftime returned 0");
             }
-            else{
+            else {
                 syslog(LOG_DEBUG, "Writing timestamp to file: %s", outstr);
                 pthread_mutex_lock(&fd_mut);
-                outstr_size = write(fd, outstr, sizeof(outstr));
+                if(write(fd, outstr, len) < len){
+                    syslog(LOG_DEBUG, "Write smaller than string");
+                }
                 pthread_mutex_unlock(&fd_mut);
                 lastStamp = t;
-                if (outstr_size != 33) {
-                    syslog(LOG_DEBUG, "strftime length: %i", outstr_size);
-                }
+                
             }
 
     	}
         else{
-        	syslog(LOG_DEBUG, "Too soon for timestamp.");
+        	//syslog(LOG_DEBUG, "Too soon for timestamp.");
         	sleep(1);
         } 
         
@@ -118,15 +120,22 @@ static void *writeToFile(void * entry){
 
     
     ssize_t nr;
-        
+    char* buf;
+    buf = malloc(bufsize);    
     int errsv;
     int rcvd;
 
     struct thread_entry *thread_info = (struct thread_entry *) entry;
-    //int cfd = thread_info->cfd;
-    int cfd = client_fd;
-    pthread_mutex_lock(&fd_mut);
-    rcvd = recv(cfd, buf, bufsize, 0);
+    int cfd = thread_info->cfd;
+    //int cfd = client_fd;
+    syslog(LOG_DEBUG, "Thread %d using cfd = %d, and fd = %d", thread_info->id, thread_info->cfd, fd);
+
+    rcvd = recv(cfd, buf, bufsize, MSG_WAITALL);
+    if (rcvd <= 0) {
+        errsv = errno;
+        syslog(LOG_ERR, "recv failed or returned 0, %s", strerror(errsv));
+    }
+
     while (rcvd == bufsize) {
         buf = realloc(buf, bufsize + CHUNK_SIZE);
         if (!buf) {
@@ -137,7 +146,7 @@ static void *writeToFile(void * entry){
         rcvd = rcvd + rcvd_more;
         bufsize = bufsize+CHUNK_SIZE;
     } 
-    
+    pthread_mutex_lock(&fd_mut);
     nr = write(fd, (char *)buf, rcvd);
 
     //printf("Writing %s to file\n", buf);
@@ -146,6 +155,7 @@ static void *writeToFile(void * entry){
     if (nr == -1){
         errsv = errno;
         syslog(LOG_ERR,"Error writing data, %s", strerror(errsv));
+        syslog(LOG_DEBUG,"fd = %i", (int)fd);
         cleanup(-1);
     }
     else if (nr != rcvd){
@@ -165,13 +175,14 @@ static void *writeToFile(void * entry){
         }
     }
     
-
-    if (read(fd, rdfile, filesize) == -1){
+    int bytesRead = read(fd, rdfile, filesize);
+    if (bytesRead == -1){
         errsv = errno;
         syslog(LOG_ERR,"Error reading file, %s\n", strerror(errsv));
         cleanup(-1);
     }
-    pthread_mutex_unlock(&fd_mut);
+    syslog(LOG_DEBUG,"Read %i bytes from file", bytesRead);
+    //pthread_mutex_unlock(&fd_mut);
     int sent = send(cfd, rdfile, filesize, 0);
             
     if (sent == -1){
@@ -189,6 +200,7 @@ static void *writeToFile(void * entry){
         syslog(LOG_ERR,"Thread %i: close error: %s", thread_info->id, strerror(errsv));
         cleanup(-1);
     }
+    free(buf);
     thread_info->complete = 1;
     pthread_exit(0);    
 }
@@ -201,7 +213,7 @@ int main(int argc, char **args){
     struct sigaction act = { 0 };
     act.sa_sigaction = &handle_signal;
 
-    buf = malloc(bufsize);
+    
     rdfile = malloc(rdsize);
         
     struct addrinfo hints;
@@ -261,10 +273,12 @@ int main(int argc, char **args){
 
     struct sockaddr *c_addr = servinfo->ai_addr;
     struct sockaddr_in* pV4Addr = (struct sockaddr_in*)&c_addr;
-    socklen_t clen = servinfo->ai_addrlen;
-    freeaddrinfo(servinfo);  
+    struct sockaddr_storage client_addr;
+    socklen_t clen = sizeof(client_addr);
+    //socklen_t clen = servinfo->ai_addrlen;
+     
 
-    fd = open("/var/tmp/aesdsocketdata", O_RDWR | O_CREAT, 0666);
+    fd = open("/var/tmp/aesdsocketdata", O_RDWR | O_CREAT | O_APPEND, 0666);
 
     
     if (fd == -1){
@@ -285,12 +299,15 @@ int main(int argc, char **args){
             perror("sigaction");
             exit(EXIT_FAILURE);
         }
-        int cfd = accept(sfd, c_addr, &clen);
+        syslog(LOG_DEBUG, "Listening socket sfd = %d", sfd);
+
+        int cfd = accept(sfd, (struct sockaddr *)&client_addr, &clen);
         if (cfd == -1) {
             errsv = errno;
             syslog(LOG_ERR,"accept error: %s\n", strerror(errsv));
             cleanup(-1);
         }
+        syslog(LOG_DEBUG, "Connected socket cfd = %d", cfd);
         //writeTimestamp();  
         struct in_addr ipAddr = pV4Addr->sin_addr;
         char str[INET_ADDRSTRLEN];
@@ -299,27 +316,29 @@ int main(int argc, char **args){
         
         struct thread_entry *node1 = malloc(sizeof(struct thread_entry));
 
-        SLIST_INSERT_HEAD(&head, node1, entries); // Insert at the head
+        
         node1->id = count;
         count++;  
         node1->complete = 0;
-        //node1->cfd = cfd;
-        client_fd = cfd;     
+        node1->cfd = cfd;
+        //client_fd = cfd;     
         //writeToFile((void*)node1);
-        
-        pthread_create(&node1->thread, NULL, writeToFile, &node1);
+        SLIST_INSERT_HEAD(&head, node1, entries); // Insert at the head
+        syslog(LOG_DEBUG, "Passing cfd = %d to thread", node1->cfd);
+        pthread_create(&node1->thread, NULL, writeToFile, node1);
         struct thread_entry *current;
         
         SLIST_FOREACH(current, &head, entries){
             if (current->complete == 1){
                 //syslog(LOG_USER, "%i: write complete", current->id);
-                printf("%i: write complete, removing entry\n", current->id);
+                //printf("%i: write complete, removing entry\n", current->id);
                 pthread_join(current->thread, NULL);
                 SLIST_REMOVE(&head, current, thread_entry, entries);
             }
    
         }
     }
+    freeaddrinfo(servinfo); 
     cleanup(1);
 
 }
